@@ -6,6 +6,10 @@ name: PDO CI with SW supply chain metadata
 on: [pull_request, push]
 jobs:
     pdo_ci:
+        outputs:
+            img_hash_wawaka: ${{ steps.hash.outputs.img_hash_wawaka }}
+            img_hash_wawaka-opt: ${{ steps.hash.outputs.img_hash_wawaka-opt }}
+
         if: "!contains(github.event.commits[0].message, '[skip ci]')"
         name: PDO CI Job
         runs-on: ubuntu-20.04
@@ -29,10 +33,32 @@ jobs:
                   # branches. However, they fail as a PR is created.
                   git checkout -b ci-test-branch
                   . build/common-config.sh
-                  make -C docker test
+                  make -C docker all
 
             - name: Generate SBOM
               uses: anchore/sbom-action@78fc58e266e87a38d4194b2137a3d4e9bcaf7ca1 # v0.14.3
               with:
                   image: pdo_client
-                  output-file: build/sbom-spdx.json
+                  artifact-name: "pdo_client_${{ matrix.interpreter }}.spdx.json"
+                  upload-release-assets: false
+
+            - name: Get image hash
+              shell: bash
+              id: hash
+              run: |
+                # this extracts the sha256 hash
+                echo "img_hash_${{ matrix.interpreter }}=$(docker inspect pdo_client -f '{{ .ContainerConfig.Image }}' | sed 's/.*://' | sed 's/$/ pdo_client_${{ matrix.interpreter }}/' | base64 -w0)" >> "$GITHUB_OUTPUT"
+    provenance:
+        needs: [pdo_ci]
+        strategy:
+            matrix:
+                interpreter: [wawaka, wakaka-opt]
+        permissions:
+            actions: read # for detecting the Github Actions environment.
+            id-token: write # for creating OIDC tokens for signing.
+            contents: write # for uploading attestations.
+
+        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.7.0
+        with:
+            base64-subjects: "${{ needs.pdo_ci.outputs[format('img_hash_{0}', matrix.interpreter)] }}"
+            provenance-name: "pdo_client_${{ matrix.interpreter }}.slsa.intoto.jsonl"

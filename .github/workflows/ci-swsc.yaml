@@ -46,7 +46,7 @@ jobs:
               id: hash
               run: |
                 # this extracts the sha256 hash
-                echo "img_hash_${{ matrix.interpreter }}=$(docker inspect pdo_client -f '{{ .ContainerConfig.Image }}' | sed 's/.*://' | sed 's/$/ pdo_client_${{ matrix.interpreter }}/' | base64 -w0)" >> "$GITHUB_OUTPUT"
+                echo "img_hash_${{ matrix.interpreter }}=$(docker inspect pdo_client --format {{.ID}} | sed 's/.*://' | sed 's/$/ pdo_client_${{ matrix.interpreter }}/' | base64 -w0)" >> "$GITHUB_OUTPUT"
     provenance:
         needs: [pdo_ci]
         strategy:

@@ -32,7 +32,7 @@ jobs:
                   # branches. However, they fail as a PR is created.
                   git checkout -b ci-test-branch
                   . build/common-config.sh
-                  make -C docker all
+                  strace -f -e trace=network -o build/strace.log make -C docker all
 
             - name: Generate SBOM
               uses: anchore/sbom-action@78fc58e266e87a38d4194b2137a3d4e9bcaf7ca1 # v0.14.3
@@ -47,6 +47,13 @@ jobs:
               run: |
                 # this extracts the sha256 hash
                 echo "img_hash_${{ matrix.interpreter }}=$(docker inspect pdo_client --format {{.ID}} | sed 's/.*://' | sed 's/$/ pdo_client_${{ matrix.interpreter }}/' | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+            - name: Upload strace log
+              uses: actions/upload-artifact@v3
+              with:
+                  name: strace-log
+                  path: build/strace.log
+
     provenance:
         needs: [pdo_ci]
         strategy:

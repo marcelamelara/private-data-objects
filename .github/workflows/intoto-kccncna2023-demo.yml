@@ -134,5 +134,6 @@ jobs:
         id: sign-report
         uses: in-toto/scai-demos/.github/actions/scai-gen-sigstore@main
         with:
-          statement-name: ${{ steps.gen-sbom-slsa-report.inputs.report-name }}
-          attestation-name: sig.${{ steps.gen-sbom-slsa-report.inputs.report-name }}
+          statement-name: evidence-collection.scai.json
+          statement-path: $GITHUB_WORKSPACE/temp
+          attestation-name: sig.evidence-collection.scai.json

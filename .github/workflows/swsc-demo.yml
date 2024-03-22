@@ -1,0 +1,139 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+name: Private Data Objects (PDO) build with SW supply chain metadata
+on: [push, workflow_dispatch]
+jobs:
+  pdo_ci:
+    outputs:
+      img-hash: ${{ steps.hash.outputs.img-hash }}
+      img-name: ${{ steps.hash.outputs.img-name }}
+      slsa-base64-subject: ${{ steps.gen-subject.outputs.slsa-base64-subject }}
+
+    name: PDO container build
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Build all containers
+        env:
+          PDO_INTERPRETER: wawaka
+        run: |
+          # The creation of a dummy branch is necessary for the CI tests
+          # to work on PRs. Based on empirical results, in the absence of
+          # this command, CI tests work on the main branch and on local
+          # branches. However, they fail as a PR is created.
+          git checkout -b ci-test-branch
+          . build/common-config.sh
+          strace -f -e trace=network -o build/strace.log make -C docker all
+
+      - name: Generate SBOM for client container
+        uses: anchore/sbom-action@9fece9e20048ca9590af301449208b2b8861333b # v0.15.9
+        with:
+          image: pdo_client
+          artifact-name: "pdo_client_wawaka.spdx.json"
+          upload-release-assets: false
+
+      - name: Get client container image hash
+        id: hash
+        shell: bash
+        run: |
+          # this extracts the sha256 hash
+          echo "img-name=pdo_client_wawaka" >> "$GITHUB_OUTPUT"
+          echo "img-hash=$(docker inspect pdo_client --format {{.ID}} | sed 's/.*://')" >> "$GITHUB_OUTPUT"
+          
+      - name: Generate slsa-github-generator subject
+        id: gen-subject
+        shell: bash
+        run: |
+          echo "slsa-base64-subject=$(echo ${{ steps.hash.outputs.img-hash }} ${{ steps.hash.outputs.img-name }} | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload strace log
+        uses: actions/upload-artifact@v3
+        with:
+          name: strace.log
+          path: build/strace.log
+
+  provenance:
+    needs: [pdo_ci]
+    permissions:
+      actions: read # for detecting the Github Actions environment.
+      id-token: write # for creating OIDC tokens for signing.
+      contents: write # for uploading attestations.
+
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.7.0
+    with:
+      base64-subjects: "${{ needs.pdo_ci.outputs.slsa-base64-subject }}"
+      provenance-name: "pdo_client_wawaka.slsa.intoto.jsonl"
+
+  scai:
+    needs: [pdo_ci, provenance]
+    runs-on: ubuntu-22.04
+    permissions:
+      id-token: write # Needed to sign
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@93397bea11091df50f3d7e59dc26a7711a8bcfbe
+        with:
+          go-version: 1.20.x
+
+      - name: Install scai-gen CLI tools
+        shell: bash
+        run: |
+          go install github.com/in-toto/scai-demos/scai-gen@latest
+
+      - name: Generate SBOM SCAI AttributeAssertion
+        id: gen-sbom-assert
+        uses: in-toto/scai-demos/.github/actions/scai-gen-assert@main
+        with:
+          attribute: "HasSBOM"
+          evidence-file: "pdo_client_wawaka.spdx.json"
+          evidence-type: "application/json"
+          assertion-name: "hassbom-assertion.json"
+
+      - name: Generate SLSA Provenance SCAI AttributeAssertion
+        id: gen-slsa-assert
+        uses: in-toto/scai-demos/.github/actions/scai-gen-assert@main
+        with:
+          attribute: "HasSLSA"
+          evidence-file: "${{ needs.provenance.outputs.provenance-name }}"
+          evidence-type: "application/vnd.in-toto.provenance+dsse"
+          assertion-name: "hasslsa-assertion.json"
+
+      - name: Generate SLSA L3 Isolated build SCAI AttributeAssertion
+        id: gen-non-hermetic-assert
+        uses: in-toto/scai-demos/.github/actions/scai-gen-assert@main
+        with:
+          attribute: "NonHermeticBuild"
+          evidence-file: "strace.log"
+          evidence-type: "text/plain"
+          assertion-name: "isolated-assertion.json"
+
+      - name: Generate container image subject ResourceDescriptor
+        id: gen-container-img-rd
+        uses: in-toto/scai-demos/.github/actions/scai-gen-rd@main
+        with:
+          is-file: false
+          name: "${{ needs.pdo_ci.outputs.img-name }}"
+          digest: "${{ needs.pdo_ci.outputs.img-hash }}"
+          hash-alg: "sha256"
+          rd-name: "container-img-desc.json"
+
+      - name: Generate SCAI AttributeReport
+        id: gen-sbom-slsa-report
+        uses: in-toto/scai-demos/.github/actions/scai-gen-report@main
+        with:
+          subject: "${{ steps.gen-container-img-rd.outputs.remote-rd-name }}"
+          attr-assertions: "${{ steps.gen-sbom-assert.outputs.assertion-name }} ${{ steps.gen-slsa-assert.outputs.assertion-name }} ${{ steps.gen-non-hermetic-assert.outputs.assertion-name }}"
+          report-name: "evidence-collection.scai.json"
+
+      - name: Sign and upload generated SCAI report (Sigstore)
+        id: sign-report
+        uses: in-toto/scai-demos/.github/actions/scai-gen-sigstore@main
+        with:
+          statement-name: evidence-collection.scai.json
+          statement-path: $GITHUB_WORKSPACE/temp
+          attestation-name: sig.evidence-collection.scai.json

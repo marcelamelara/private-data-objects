@@ -64,7 +64,7 @@ jobs:
       id-token: write # for creating OIDC tokens for signing.
       contents: write # for uploading attestations.
 
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.7.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
     with:
       base64-subjects: "${{ needs.pdo_ci.outputs.slsa-base64-subject }}"
       provenance-name: "pdo_client_wawaka.slsa.intoto.jsonl"

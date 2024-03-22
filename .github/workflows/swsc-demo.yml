@@ -33,7 +33,7 @@ jobs:
       - name: Generate SBOM for client container
         uses: anchore/sbom-action@9fece9e20048ca9590af301449208b2b8861333b # v0.15.9
         with:
-          image: pdo_client
+          image: docker.io/library/pdo_client:0.0.0
           artifact-name: "pdo_client_wawaka.spdx.json"
           upload-release-assets: false
 

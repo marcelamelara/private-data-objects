@@ -43,7 +43,7 @@ jobs:
         run: |
           # this extracts the sha256 hash
           echo "img-name=pdo_client_wawaka" >> "$GITHUB_OUTPUT"
-          echo "img-hash=$(docker inspect pdo_client --format {{.ID}} | sed 's/.*://')" >> "$GITHUB_OUTPUT"
+          echo "img-hash=$(docker inspect docker.io/library/pdo_client:0.0.0 --format {{.ID}} | sed 's/.*://')" >> "$GITHUB_OUTPUT"
           
       - name: Generate slsa-github-generator subject
         id: gen-subject
